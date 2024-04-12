@@ -1,0 +1,80 @@
+import sys
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import Qt
+import numpy as np
+import cv2
+import tensorflow as tf
+from tensorflow.keras.models import Model
+
+# Define the SSIMLoss and PSNR functions
+def SSIMLoss(y_true, y_pred):
+    return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
+
+def PSNR(y_true, y_pred):
+    max_pixel = 1.0
+    return (10.0 * K.log((max_pixel ** 2) / (K.mean(K.square(y_pred - y_true), axis=-1)))) / 2.303
+
+# Load the trained model with custom_objects argument
+model = tf.keras.models.load_model('image_deblurrer', custom_objects={'SSIMLoss': SSIMLoss, 'PSNR': PSNR})
+
+class ImageDeblurrer(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Image Deblurrer')
+        self.image_path = None
+
+        self.image_label = QLabel(self)
+        self.image_label.setFixedSize(400, 400)
+        self.image_label.setAlignment(Qt.AlignCenter)
+
+        self.select_button = QPushButton('Select Image', self)
+        self.select_button.clicked.connect(self.select_image)
+
+        self.deblur_button = QPushButton('Deblur', self)
+        self.deblur_button.clicked.connect(self.deblur_image)
+        self.deblur_button.setEnabled(False)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.select_button)
+        button_layout.addWidget(self.deblur_button)
+
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.image_label)
+        main_layout.addLayout(button_layout)
+
+        self.setLayout(main_layout)
+
+    def select_image(self):
+        file_dialog = QFileDialog()
+        file_path, _ = file_dialog.getOpenFileName(self, 'Select Image')
+        if file_path:
+            self.image_path = file_path
+            self.display_image(file_path)
+            self.deblur_button.setEnabled(True)
+
+    def display_image(self, file_path):
+        pixmap = QPixmap(file_path)
+        pixmap = pixmap.scaled(400, 400, Qt.KeepAspectRatio)
+        self.image_label.setPixmap(pixmap)
+
+    def deblur_image(self):
+        if self.image_path:
+            image = cv2.imread(self.image_path)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = cv2.resize(image, (224, 224))
+            image = image.astype('float32') / 255
+            image = np.expand_dims(image, axis=0)
+            deblurred_image = model.predict(image)
+            deblurred_image = deblurred_image.squeeze() * 255
+            deblurred_image = deblurred_image.astype('uint8')
+            deblurred_image = cv2.cvtColor(deblurred_image, cv2.COLOR_RGB2BGR)
+            cv2.imshow('Deblurred Image', deblurred_image)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    deblurrer = ImageDeblurrer()
+    deblurrer.show()
+    sys.exit(app.exec_())
